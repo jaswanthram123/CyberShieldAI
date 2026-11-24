@@ -1,0 +1,75 @@
+# =====================================
+# Secrets and environment variables
+# =====================================
+
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+
+# =====================================
+# Python
+# =====================================
+
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# =====================================
+# AI models and datasets
+# =====================================
+
+*.joblib
+*.pkl
+*.pickle
+ai-engine/data/
+ai-engine/hf_cache/
+
+# =====================================
+# Java / Spring Boot
+# =====================================
+
+target/
+.gradle/
+build/
+*.class
+
+# =====================================
+# React / Vite
+# =====================================
+
+node_modules/
+dist/
+.vite/
+
+# =====================================
+# Development files
+# =====================================
+
+message-request.json
+url-request.json
+ollama-output.txt
+test-files/
+
+# =====================================
+# IDE and OS
+# =====================================
+
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# =====================================
+# Logs
+# =====================================
+
+*.log
+logs/

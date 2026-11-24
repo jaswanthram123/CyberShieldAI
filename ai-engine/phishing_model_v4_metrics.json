@@ -1,0 +1,43 @@
+{
+  "model_version": "phishing-v4.0-experimental",
+  "training_data": "Phishing email dataset + UCI SMS Collection legitimate (ham) messages",
+  "train_count": 8412,
+  "email_test": {
+    "count": 1200,
+    "accuracy": 0.9116666666666666,
+    "confusion_matrix": [
+      [
+        595,
+        5
+      ],
+      [
+        101,
+        499
+      ]
+    ],
+    "false_positive_rate": 0.008333333333333333,
+    "precision": 0.9900793650793651,
+    "recall": 0.8316666666666667,
+    "f1": 0.9039855072463768
+  },
+  "legitimate_sms_test": {
+    "count": 904,
+    "accuracy": 0.9977876106194691,
+    "confusion_matrix": [
+      [
+        902,
+        2
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "false_positive_rate": 0.0022123893805309734,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0
+  },
+  "diagnostic_failures": 3,
+  "warning": "SMS spam is not phishing; no spam samples were relabeled as phishing. Scores are not calibrated probabilities."
+}
