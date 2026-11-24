@@ -113,8 +113,35 @@ export default function ThreatIntelligence() {
   }, []);
 
   useEffect(() => {
-    loadSummary();
-  }, [loadSummary]);
+    let cancelled = false;
+
+    async function fetchInitialSummary() {
+      try {
+        const data = await getThreatIntelligenceSummary();
+        if (!cancelled) {
+          setSummary(data);
+          setError("");
+        }
+      } catch (err) {
+        if (!cancelled && err.response?.status !== 401) {
+          setError(
+            err.response?.data?.message ||
+              "Unable to load threat intelligence data."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchInitialSummary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const total = summary?.totalScans ?? 0;
   const high = summary?.highRisk ?? 0;

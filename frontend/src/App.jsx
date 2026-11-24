@@ -93,22 +93,7 @@ function MetricCard({ title, value, icon: Icon, description }) {
   );
 }
 
-function PlaceholderPage({ title, description, icon: Icon }) {
-  return (
-    <div className="placeholder-card">
-      <div className="placeholder-icon">
-        <Icon size={30} />
-      </div>
 
-      <h2>{title}</h2>
-      <p>{description}</p>
-
-      <span className="coming-soon">
-        Planned for a future development step
-      </span>
-    </div>
-  );
-}
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(false);
