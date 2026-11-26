@@ -25,6 +25,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
+import java.util.ArrayList;
+import org.springframework.beans.factory.annotation.Value;
+
 import jakarta.servlet.DispatcherType;
 
 @Configuration
@@ -130,50 +133,48 @@ public class SecurityConfig {
     // CORS Configuration
     // ---------------------------------------
 
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
 
-        CorsConfiguration config =
-                new CorsConfiguration();
+@Bean
+public CorsConfigurationSource corsConfigurationSource(
+        @Value("${FRONTEND_URL:}") String frontendUrl) {
 
-        // React frontend
-        config.setAllowedOrigins(
-    List.of(
+    CorsConfiguration config = new CorsConfiguration();
+
+    List<String> allowedOrigins = new ArrayList<>(List.of(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5174"
-    )
-);
+    ));
 
-        // Allowed HTTP methods
-        config.setAllowedMethods(
-            List.of(
-                "GET",
-                "POST",
-                "OPTIONS"
-            )
+    // Add production frontend URL when configured
+    if (frontendUrl != null && !frontendUrl.isBlank()) {
+        allowedOrigins.add(
+            frontendUrl.strip().replaceAll("/+$", "")
         );
-
-        // Allowed request headers
-        config.setAllowedHeaders(
-            List.of(
-                "Authorization",
-                "Content-Type"
-            )
-        );
-
-        // No cookie-based authentication
-        config.setAllowCredentials(false);
-
-        UrlBasedCorsConfigurationSource source =
-                new UrlBasedCorsConfigurationSource();
-
-        source.registerCorsConfiguration(
-            "/api/**",
-            config
-        );
-
-        return source;
     }
+
+    config.setAllowedOrigins(allowedOrigins);
+
+    config.setAllowedMethods(List.of(
+        "GET",
+        "POST",
+        "OPTIONS"
+    ));
+
+    config.setAllowedHeaders(List.of(
+        "Authorization",
+        "Content-Type"
+    ));
+
+    config.setAllowCredentials(false);
+
+    UrlBasedCorsConfigurationSource source =
+            new UrlBasedCorsConfigurationSource();
+
+    source.registerCorsConfiguration("/api/**", config);
+
+    return source;
+}
+
 }
