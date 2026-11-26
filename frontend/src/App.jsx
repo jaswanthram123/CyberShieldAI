@@ -1,4 +1,4 @@
-﻿
+
 import { useCallback, useEffect, useState } from "react";
 
 import UrlAnalyzer from "./components/UrlAnalyzer";
@@ -994,7 +994,7 @@ export default function App() {
         </main>
 
         <footer className="app-footer">
-          CyberShield AI â€” Local Development Environment
+          CyberShield AI - AI-Powered Cyber Threat Intelligence Platform
         </footer>
       </div>
     </div>
