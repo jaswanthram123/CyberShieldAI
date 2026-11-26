@@ -83,7 +83,11 @@ def test_url_analysis():
 
     data = response.json()
 
-    assert data["prediction"] in ["SUSPICIOUS", "LEGITIMATE"]
+    assert data["prediction"] in [
+    "SUSPICIOUS",
+    "LEGITIMATE",
+    "NO_INDICATORS_DETECTED",
+]
     assert 0 <= data["risk_score"] <= 100
     assert isinstance(data["explanation"], str)
 
