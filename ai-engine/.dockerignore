@@ -17,3 +17,11 @@ test_*.py
 *.pkl
 Dockerfile
 .dockerignore
+
+# Include production ML models
+!scam_model.joblib
+!url_model_v1.joblib
+
+# Include production ML models
+!scam_model.joblib
+!url_model_v1.joblib

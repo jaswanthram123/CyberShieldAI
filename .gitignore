@@ -73,3 +73,10 @@ Thumbs.db
 
 *.log
 logs/
+
+# Allow production ML models
+!ai-engine/scam_model.joblib
+
+# Allow production ML models
+!ai-engine/scam_model.joblib
+!ai-engine/url_model_v1.joblib
