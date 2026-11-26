@@ -1,4 +1,4 @@
-
+﻿
 import { useState } from "react";
 import { generateAiExplanation } from "../services/api";
 
@@ -111,7 +111,7 @@ export default function AiExplanation({ scanId }) {
             Explanation source:{" "}
             {result.model?.startsWith("deterministic")
               ? "Predefined explanation"
-              : `Local AI (${result.model})`}
+              : `Gemini AI (${result.model})`}
           </p>
 
           {Array.isArray(result.indicators) &&
@@ -152,3 +152,4 @@ export default function AiExplanation({ scanId }) {
     </section>
   );
 }
+
