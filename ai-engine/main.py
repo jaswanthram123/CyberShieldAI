@@ -1,4 +1,4 @@
-
+﻿
 import os
 from pathlib import Path
 from typing import Literal
@@ -17,7 +17,7 @@ from url_analyzer import analyze_url
 from file_analyzer import MAX_FILE_SIZE
 from advanced_file_analyzer import analyze_file_advanced
 
-from ollama_explainer import explain_scan
+from gemini_explainer import explain_scan
 
 
 # ======================================================
@@ -643,3 +643,4 @@ def explain_security_result(
         )
 
     return result
+
