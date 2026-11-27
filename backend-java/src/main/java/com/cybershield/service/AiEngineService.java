@@ -3,19 +3,18 @@ package com.cybershield.service;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
 import java.util.Map;
-
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 
 @Service
 public class AiEngineService {
@@ -23,7 +22,15 @@ public class AiEngineService {
     private final RestClient restClient;
 
     public AiEngineService(
-            @Value("${ai.engine.url}") String aiEngineUrl) {
+            @Value("${ai.engine.url}") String aiEngineUrl,
+            @Value("${AI_ENGINE_INTERNAL_KEY}") String internalKey
+    ) {
+
+        if (internalKey == null || internalKey.isBlank()) {
+            throw new IllegalStateException(
+                    "AI_ENGINE_INTERNAL_KEY is required"
+            );
+        }
 
         SimpleClientHttpRequestFactory factory =
                 new SimpleClientHttpRequestFactory();
@@ -33,6 +40,10 @@ public class AiEngineService {
 
         this.restClient = RestClient.builder()
                 .baseUrl(aiEngineUrl)
+                .defaultHeader(
+                        "X-Internal-API-Key",
+                        internalKey
+                )
                 .requestFactory(factory)
                 .build();
     }
@@ -59,40 +70,39 @@ public class AiEngineService {
                         Map<String, Object>>() {});
     }
 
+    public Map<String, Object> analyzeFile(
+            String filename,
+            byte[] fileBytes
+    ) {
 
-public Map<String, Object> analyzeFile(
-        String filename,
-        byte[] fileBytes) {
+        ByteArrayResource resource =
+                new ByteArrayResource(fileBytes) {
 
-    ByteArrayResource resource =
-            new ByteArrayResource(fileBytes) {
+                    @Override
+                    public String getFilename() {
+                        return filename;
+                    }
+                };
 
-        @Override
-        public String getFilename() {
-            return filename;
-        }
-    };
+        HttpHeaders fileHeaders = new HttpHeaders();
+        fileHeaders.setContentType(
+                MediaType.APPLICATION_OCTET_STREAM
+        );
 
-    HttpHeaders fileHeaders = new HttpHeaders();
-    fileHeaders.setContentType(
-            MediaType.APPLICATION_OCTET_STREAM
-    );
+        HttpEntity<ByteArrayResource> filePart =
+                new HttpEntity<>(resource, fileHeaders);
 
-    HttpEntity<ByteArrayResource> filePart =
-            new HttpEntity<>(resource, fileHeaders);
+        MultiValueMap<String, Object> body =
+                new LinkedMultiValueMap<>();
 
-    MultiValueMap<String, Object> body =
-            new LinkedMultiValueMap<>();
+        body.add("file", filePart);
 
-    body.add("file", filePart);
-
-    return restClient.post()
-            .uri("/analyze/file")
-            .contentType(MediaType.MULTIPART_FORM_DATA)
-            .body(body)
-            .retrieve()
-            .body(new ParameterizedTypeReference<
-                    Map<String, Object>>() {});
-}
-
+        return restClient.post()
+                .uri("/analyze/file")
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(body)
+                .retrieve()
+                .body(new ParameterizedTypeReference<
+                        Map<String, Object>>() {});
+    }
 }

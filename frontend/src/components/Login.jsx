@@ -1,8 +1,7 @@
-
 import { useState } from "react";
 import { login } from "../services/api";
 
-export default function Login({ onLogin }) {
+export default function Login({ onLogin, onGuest }) {
   const [username, setUsername] = useState("developer");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -55,11 +54,36 @@ export default function Login({ onLogin }) {
           autoComplete="current-password"
         />
 
-        {error && <p className="login-error">{error}</p>}
+        {error && <p className="login-error" role="alert">{error}</p>}
 
         <button type="submit" disabled={loading}>
           {loading ? "Signing in..." : "Sign In"}
         </button>
+
+        <p style={{ textAlign: "center", margin: "16px 0 10px" }}>
+          OR
+        </p>
+
+        <button
+          type="button"
+          onClick={onGuest}
+          disabled={loading}
+          style={{
+            width: "100%",
+            padding: "12px",
+            background: "transparent",
+            border: "1px solid #64748b",
+            borderRadius: "8px",
+            color: "inherit",
+            cursor: "pointer",
+          }}
+        >
+          Continue as Guest
+        </button>
+
+        <p style={{ fontSize: "12px", textAlign: "center", marginTop: "12px" }}>
+          No account required. Guest scans are not saved to your dashboard.
+        </p>
       </form>
     </div>
   );

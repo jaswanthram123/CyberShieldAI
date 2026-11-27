@@ -1,9 +1,12 @@
-﻿
-import os
+﻿import os
 from pathlib import Path
 from typing import Literal
 
 import joblib
+
+import hmac
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
 from message_indicators import extract_message_indicators
 
@@ -33,6 +36,50 @@ app = FastAPI(
     ),
     version="2.6.0"
 )
+
+
+# ==========================================
+# Internal API Authentication
+# ==========================================
+
+INTERNAL_API_KEY = os.getenv(
+    "AI_ENGINE_INTERNAL_KEY", ""
+).strip()
+
+if not INTERNAL_API_KEY:
+    raise RuntimeError(
+        "AI_ENGINE_INTERNAL_KEY is required"
+    )
+
+
+@app.middleware("http")
+async def verify_internal_api_key(
+    request: Request,
+    call_next
+):
+
+    # Keep Render health checks accessible.
+    if request.url.path in ("/", "/health"):
+        return await call_next(request)
+
+    provided_key = request.headers.get(
+        "X-Internal-API-Key", ""
+    )
+
+    if not hmac.compare_digest(
+        provided_key,
+        INTERNAL_API_KEY
+    ):
+        return JSONResponse(
+            status_code=401,
+            content={
+                "status": "ERROR",
+                "message": "Unauthorized AI engine request"
+            }
+        )
+
+    return await call_next(request)
+
 
 
 # ======================================================
@@ -427,27 +474,26 @@ def analyze_message(request: MessageRequest):
 # 11. AI URL Analysis Endpoint
 # ======================================================
 
+
 @app.post("/analyze/url")
-def analyze_url_endpoint(
-    request: URLAnalysisRequest
-):
+def analyze_url_endpoint(request: URLAnalysisRequest):
 
     try:
         # ----------------------------------
-        # Existing Rule-Based Analysis
+        # Step 1: Rule-Based URL Analysis
         # ----------------------------------
 
         result = analyze_url(request.url)
 
-        # Keep rule-based scanner available
-        # when the trained URL model is missing.
+        # Continue using rule-based analysis
+        # if the trained ML model is unavailable.
         if url_model is None:
             return result
 
         url = request.url.strip()
 
         # ----------------------------------
-        # URL Machine Learning Inference
+        # Step 2: Machine Learning Analysis
         # ----------------------------------
 
         try:
@@ -457,17 +503,35 @@ def analyze_url_endpoint(
 
             classes = list(url_model.classes_)
 
+            # Class 1 represents phishing.
             phishing_index = classes.index(1)
 
             phishing_probability = float(
                 probabilities[phishing_index]
             )
 
-        except (AttributeError, ValueError, IndexError) as error:
+            if not (
+                0.0 <= phishing_probability <= 1.0
+            ):
+                raise ValueError(
+                    "Invalid ML probability"
+                )
+
+        except (
+            AttributeError,
+            ValueError,
+            IndexError,
+            TypeError
+        ) as error:
+
             raise HTTPException(
                 status_code=503,
                 detail="URL ML model is incompatible"
             ) from error
+
+        # ----------------------------------
+        # Step 3: Calculate Scores
+        # ----------------------------------
 
         ml_score = round(
             phishing_probability * 100,
@@ -478,28 +542,29 @@ def analyze_url_endpoint(
             result.get("risk_score", 0)
         )
 
-        # ----------------------------------
-        # Experimental Combined Score
-        # ----------------------------------
-
+        # Experimental equal-weighted score.
         combined_score = round(
-            (
-                heuristic_score
-                + ml_score
-            ) / 2,
+            (heuristic_score + ml_score) / 2,
             2
         )
+
+        # ----------------------------------
+        # Step 4: Final Risk Classification
+        # ----------------------------------
 
         risk_level = get_risk_level(
             combined_score
         )
 
-        prediction = (
-            "SUSPICIOUS"
-            if combined_score >= 50
-            else "LEGITIMATE"
-        )
+        # Final prediction must agree with
+        # the combined risk classification.
+        if risk_level in {"HIGH", "MEDIUM"}:
+            prediction = "SUSPICIOUS"
+        else:
+            prediction = "NO_INDICATORS_DETECTED"
 
+        # Keep the ML model's independent
+        # prediction visible for comparison.
         ml_prediction = (
             "SUSPICIOUS"
             if phishing_probability >= 0.5
@@ -507,7 +572,7 @@ def analyze_url_endpoint(
         )
 
         # ----------------------------------
-        # Preserve Existing Response Fields
+        # Step 5: Preserve Existing Fields
         # ----------------------------------
 
         old_explanation = str(
@@ -518,28 +583,49 @@ def analyze_url_endpoint(
             heuristic_score
         )
 
-        result["ml_risk_score"] = ml_score
+        result["ml_risk_score"] = (
+            ml_score
+        )
 
-        result["ml_prediction"] = ml_prediction
+        result["ml_prediction"] = (
+            ml_prediction
+        )
 
-        result["risk_score"] = combined_score
+        result["risk_score"] = (
+            combined_score
+        )
 
-        result["risk_level"] = risk_level
+        result["risk_level"] = (
+            risk_level
+        )
 
-        result["prediction"] = prediction
+        result["prediction"] = (
+            prediction
+        )
 
-        result["model_version"] = "url-ml-v1.0"
+        result["model_version"] = (
+            "url-ml-v1.0"
+        )
+
+        # ----------------------------------
+        # Step 6: Explanation
+        # ----------------------------------
 
         result["explanation"] = (
             old_explanation
             + " Machine learning phishing-class "
             "score: "
             + str(ml_score)
-            + "%. The overall score combines "
-            "heuristic and ML scores using "
-            "experimental equal weighting. "
-            "It is not a calibrated probability "
-            "that this URL is malicious."
+            + "%. Heuristic risk score: "
+            + str(round(heuristic_score, 2))
+            + "%. The final risk score is the "
+            "experimental equal-weighted average "
+            "of both scores. "
+            "The final prediction follows the "
+            "combined risk level, while the ML "
+            "prediction is displayed separately. "
+            "These scores are not calibrated "
+            "probabilities of malicious activity."
         )
 
         return result
@@ -552,7 +638,6 @@ def analyze_url_endpoint(
             status_code=400,
             detail=str(error)
         ) from error
-
 
 # ======================================================
 # 12. Advanced File Analysis Endpoint

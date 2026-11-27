@@ -1,12 +1,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import Login from "./components/Login";
 import UrlAnalyzer from "./components/UrlAnalyzer";
-import AiExplanation from "./components/AiExplanation";
-
-
 import FileAnalyzer from "./components/FileAnalyzer";
-
+import AiExplanation from "./components/AiExplanation";
 import ThreatIntelligence from "./components/ThreatIntelligence";
 
 import {
@@ -32,13 +30,12 @@ import {
   Clock3,
 } from "lucide-react";
 
-import Login from "./components/Login";
-
 import {
   checkBackendHealth,
   getTotalScans,
   getAllScans,
   analyzeMessage,
+  analyzeGuestMessage,
   clearCredentials,
   setUnauthorizedHandler,
 } from "./services/api";
@@ -55,17 +52,18 @@ const navigation = [
   { name: "Settings", icon: Settings },
 ];
 
+const guestPages = [
+  "Message Scanner",
+  "URL Analyzer",
+  "File Analyzer",
+];
+
 function getRiskClass(level) {
-  switch ((level || "").toUpperCase()) {
-    case "HIGH":
-      return "risk-high";
-    case "MEDIUM":
-      return "risk-medium";
-    case "LOW":
-      return "risk-low";
-    default:
-      return "risk-unknown";
-  }
+  const value = String(level || "").toUpperCase();
+
+  return ["LOW", "MEDIUM", "HIGH"].includes(value)
+    ? `risk-${value.toLowerCase()}`
+    : "risk-unknown";
 }
 
 function formatDate(value) {
@@ -73,12 +71,17 @@ function formatDate(value) {
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) return "N/A";
-
-  return date.toLocaleString();
+  return Number.isNaN(date.getTime())
+    ? "N/A"
+    : date.toLocaleString();
 }
 
-function MetricCard({ title, value, icon: Icon, description }) {
+function MetricCard({
+  title,
+  value,
+  icon: Icon,
+  description,
+}) {
   return (
     <div className="metric-card">
       <div className="metric-top">
@@ -87,49 +90,64 @@ function MetricCard({ title, value, icon: Icon, description }) {
       </div>
 
       <div className="metric-value">{value}</div>
-
       <p>{description}</p>
     </div>
   );
 }
 
-
-
 export default function App() {
-  const [authenticated, setAuthenticated] = useState(false);
-  const [sessionMessage, setSessionMessage] = useState("");
+  const [authenticated, setAuthenticated] =
+    useState(false);
 
-  const [activePage, setActivePage] = useState("Overview");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isGuest, setIsGuest] = useState(false);
+  const [sessionMessage, setSessionMessage] =
+    useState("");
 
-  const [backendStatus, setBackendStatus] = useState("CHECKING");
+  const [activePage, setActivePage] =
+    useState("Overview");
 
-  const [totalScans, setTotalScans] = useState(0);
-  const [scanHistory, setScanHistory] = useState([]);
-  const [scanDataError, setScanDataError] = useState("");
+  const [sidebarOpen, setSidebarOpen] =
+    useState(false);
 
-  const [message, setMessage] = useState("");
-  const [result, setResult] = useState(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [backendStatus, setBackendStatus] =
+    useState("CHECKING");
+
+  const [totalScans, setTotalScans] =
+    useState(0);
+
+  const [scanHistory, setScanHistory] =
+    useState([]);
+
+  const [scanDataError, setScanDataError] =
+    useState("");
+
+  const [message, setMessage] =
+    useState("");
+
+  const [result, setResult] =
+    useState(null);
+
+  const [analyzing, setAnalyzing] =
+    useState(false);
+
+  const [notice, setNotice] =
+    useState("");
 
   const resetDashboard = useCallback(() => {
     setAuthenticated(false);
+    setIsGuest(false);
     setActivePage("Overview");
     setSidebarOpen(false);
-
     setMessage("");
     setResult(null);
     setNotice("");
     setAnalyzing(false);
-
     setTotalScans(0);
     setScanHistory([]);
     setScanDataError("");
     setBackendStatus("CHECKING");
   }, []);
 
-  // Handle authentication failures from the backend.
   useEffect(() => {
     setUnauthorizedHandler(() => {
       clearCredentials();
@@ -140,37 +158,39 @@ export default function App() {
       );
     });
 
-    return () => {
-      setUnauthorizedHandler(null);
-    };
+    return () => setUnauthorizedHandler(null);
   }, [resetDashboard]);
 
   const refreshScans = useCallback(async () => {
     try {
-      const [countData, historyData] = await Promise.all([
-        getTotalScans(),
-        getAllScans(),
-      ]);
+      const [countData, historyData] =
+        await Promise.all([
+          getTotalScans(),
+          getAllScans(),
+        ]);
 
-      setTotalScans(Number(countData.totalScans || 0));
+      setTotalScans(
+        Number(countData.totalScans || 0)
+      );
 
       setScanHistory(
-        Array.isArray(historyData) ? historyData : []
+        Array.isArray(historyData)
+          ? historyData
+          : []
       );
 
       setScanDataError("");
     } catch (error) {
-      if (error.response?.status === 401) {
-        return;
+      if (error.response?.status !== 401) {
+        setScanDataError(
+          "Unable to load scan history."
+        );
       }
-
-      setScanDataError("Unable to load scan history.");
     }
   }, []);
 
-  // Load dashboard data after successful login.
   useEffect(() => {
-    if (!authenticated) return;
+    if (!authenticated && !isGuest) return;
 
     let cancelled = false;
 
@@ -187,7 +207,7 @@ export default function App() {
         }
       }
 
-      if (!cancelled) {
+      if (!cancelled && authenticated) {
         await refreshScans();
       }
     }
@@ -197,14 +217,23 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [authenticated, refreshScans]);
+  }, [authenticated, isGuest, refreshScans]);
 
   function handleLogin() {
-    setSessionMessage("");
+    setIsGuest(false);
     setAuthenticated(true);
+    setSessionMessage("");
     setActivePage("Overview");
-    setNotice("");
     setResult(null);
+    setNotice("");
+  }
+
+  function handleGuest() {
+    clearCredentials();
+    resetDashboard();
+    setIsGuest(true);
+    setSessionMessage("");
+    setActivePage("Message Scanner");
   }
 
   function handleLogout() {
@@ -214,6 +243,10 @@ export default function App() {
   }
 
   function changePage(page) {
+    if (isGuest && !guestPages.includes(page)) {
+      return;
+    }
+
     setActivePage(page);
     setSidebarOpen(false);
   }
@@ -221,16 +254,21 @@ export default function App() {
   async function handleAnalyze(event) {
     event.preventDefault();
 
+    if (analyzing) return;
+
     const cleanMessage = message.trim();
+    const maxLength = isGuest ? 2000 : 10000;
 
     if (!cleanMessage) {
-      setNotice("Please enter a message to analyze.");
+      setNotice(
+        "Please enter a message to analyze."
+      );
       return;
     }
 
-    if (cleanMessage.length > 10000) {
+    if (cleanMessage.length > maxLength) {
       setNotice(
-        "Message must contain at most 10,000 characters."
+        `Message must contain at most ${maxLength} characters.`
       );
       return;
     }
@@ -240,24 +278,37 @@ export default function App() {
     setResult(null);
 
     try {
-      const data = await analyzeMessage(cleanMessage);
+      const data = isGuest
+        ? await analyzeGuestMessage(cleanMessage)
+        : await analyzeMessage(cleanMessage);
 
-      if (data.status !== "COMPLETED") {
-        throw new Error("AI analysis was not completed.");
+      if (data?.status !== "COMPLETED") {
+        throw new Error(
+          "AI analysis was not completed."
+        );
       }
 
       setResult(data);
       setNotice("Message analyzed successfully.");
 
-      await refreshScans();
+      if (!isGuest) {
+        await refreshScans();
+      }
     } catch (error) {
-      if (error.response?.status === 401) {
+      if (
+        error.response?.status === 401 &&
+        !isGuest
+      ) {
         return;
       }
 
-      if (error.response?.status === 503) {
+      if (error.response?.status === 429) {
         setNotice(
-          "Python AI engine is unavailable. Start FastAPI."
+          "Guest scan limit reached. Please try again later."
+        );
+      } else if (error.response?.status === 503) {
+        setNotice(
+          "AI engine is temporarily unavailable."
         );
       } else {
         setNotice(
@@ -275,7 +326,7 @@ export default function App() {
     (scan) =>
       scan.status === "COMPLETED" &&
       ["HIGH", "MEDIUM"].includes(
-        (scan.riskLevel || "").toUpperCase()
+        String(scan.riskLevel || "").toUpperCase()
       )
   ).length;
 
@@ -285,14 +336,16 @@ export default function App() {
 
   const flaggedPercentage =
     completedScans > 0
-      ? ((detectedThreats / completedScans) * 100).toFixed(1)
+      ? (
+          (detectedThreats / completedScans) *
+          100
+        ).toFixed(1)
       : "0.0";
 
-  const latestScan =
-    scanHistory.length > 0 ? scanHistory[0] : null;
+  const latestScan = scanHistory[0] || null;
 
   function renderScanTable(scans) {
-    if (scans.length === 0) {
+    if (!scans.length) {
       return (
         <div className="empty-state">
           <History size={28} />
@@ -319,9 +372,7 @@ export default function App() {
             {scans.map((scan) => (
               <tr key={scan.id}>
                 <td>#{scan.id}</td>
-
                 <td>{scan.scanType || "N/A"}</td>
-
                 <td>
                   <span
                     className={`risk-badge ${getRiskClass(
@@ -331,15 +382,12 @@ export default function App() {
                     {scan.riskLevel || "UNKNOWN"}
                   </span>
                 </td>
-
                 <td>
                   {typeof scan.riskScore === "number"
                     ? `${scan.riskScore.toFixed(2)}%`
                     : "N/A"}
                 </td>
-
                 <td>{scan.status || "N/A"}</td>
-
                 <td>{formatDate(scan.createdAt)}</td>
               </tr>
             ))}
@@ -356,7 +404,8 @@ export default function App() {
           <div>
             <h1>Security Overview</h1>
             <p>
-              Monitor your AI-powered security analysis activity.
+              Monitor your AI-powered security
+              analysis activity.
             </p>
           </div>
 
@@ -393,7 +442,11 @@ export default function App() {
 
           <MetricCard
             title="Latest Scan"
-            value={latestScan ? `#${latestScan.id}` : "N/A"}
+            value={
+              latestScan
+                ? `#${latestScan.id}`
+                : "N/A"
+            }
             icon={Clock3}
             description="Most recent recorded scan"
           />
@@ -451,7 +504,7 @@ export default function App() {
           <div className="panel">
             <div className="panel-heading">
               <h2>System Status</h2>
-              <p>Development environment</p>
+              <p>Application services</p>
             </div>
 
             <div className="system-row">
@@ -476,7 +529,6 @@ export default function App() {
                 <LockKeyhole size={18} />
                 Authentication
               </span>
-
               <span className="status-online">
                 AUTHENTICATED
               </span>
@@ -487,8 +539,7 @@ export default function App() {
                 <ShieldCheck size={18} />
                 Security Mode
               </span>
-
-              <span>Local Development</span>
+              <span>Developer</span>
             </div>
           </div>
         </div>
@@ -503,25 +554,50 @@ export default function App() {
         </div>
 
         <p className="disclaimer">
-          AI detection results are experimental and are not
-          validated measures of real-world threat detection
-          accuracy.
+          AI detection results are experimental.
+          Risk scores are not validated security
+          probabilities.
         </p>
       </>
     );
   }
 
   function renderMessageScanner() {
-    const riskScore = Number(result?.risk_score ?? 0);
-    // FastAPI returns confidence_score, not confidence.
-    const confidence = Number(result?.confidence_score);
+    const riskScore = Number(
+      result?.risk_score ?? 0
+    );
+
+    const confidence = Number(
+      result?.confidence_score
+    );
+
     const hasConfidence =
-      result?.confidence_score != null && Number.isFinite(confidence);
-    const modelVersion = result?.model_version || "Unknown";
-    const isDemoModel = modelVersion.startsWith("demo-");
-    const messageIndicators = Array.isArray(result?.indicators)
-      ? result.indicators.filter((item) => typeof item === "string")
-      : [];
+      result?.confidence_score != null &&
+      Number.isFinite(confidence);
+
+    const modelVersion =
+      result?.model_version || "Unknown";
+
+    const isDemoModel =
+      modelVersion.startsWith("demo-");
+
+    const messageIndicators =
+      Array.isArray(result?.indicators)
+        ? result.indicators.filter(
+            (item) => typeof item === "string"
+          )
+        : [];
+
+    const maxLength = isGuest ? 2000 : 10000;
+
+    const hasSavedScan =
+      Number.isSafeInteger(
+        Number(result?.scan_id)
+      ) &&
+      Number(result?.scan_id) > 0;
+
+    const guestToken =
+      result?.guest_explanation_token;
 
     return (
       <>
@@ -529,8 +605,8 @@ export default function App() {
           <div>
             <h1>AI Message Scanner</h1>
             <p>
-              Analyze messages for potentially suspicious
-              patterns.
+              Analyze messages for potentially
+              suspicious patterns.
             </p>
           </div>
         </div>
@@ -539,8 +615,8 @@ export default function App() {
           <div className="panel-heading">
             <h2>Enter Message</h2>
             <p>
-              Paste an email, SMS, or chat message for AI
-              analysis.
+              Paste an email, SMS, or chat
+              message for AI analysis.
             </p>
           </div>
 
@@ -552,13 +628,14 @@ export default function App() {
               onChange={(event) =>
                 setMessage(event.target.value)
               }
-              maxLength={10000}
+              maxLength={maxLength}
               rows={8}
             />
 
             <div className="scanner-actions">
               <span className="character-count">
-                {message.length} / 10,000 characters
+                {message.length} /{" "}
+                {maxLength.toLocaleString()} characters
               </span>
 
               <button
@@ -568,10 +645,7 @@ export default function App() {
               >
                 {analyzing ? (
                   <>
-                    <LoaderCircle
-                      size={17}
-                      className="spin"
-                    />
+                    <LoaderCircle size={17} />
                     Analyzing...
                   </>
                 ) : (
@@ -604,7 +678,9 @@ export default function App() {
               <div>
                 <h2>AI Analysis Result</h2>
                 <p>
-                  Scan #{result.scan_id ?? "N/A"}
+                  {isGuest
+                    ? "Guest scan · Not saved"
+                    : `Scan #${result.scan_id ?? "N/A"}`}
                 </p>
               </div>
 
@@ -642,7 +718,9 @@ export default function App() {
               <div className="result-stat">
                 <span>Model Confidence</span>
                 <strong>
-                  {hasConfidence ? `${confidence.toFixed(2)}%` : "N/A"}
+                  {hasConfidence
+                    ? `${confidence.toFixed(2)}%`
+                    : "N/A"}
                 </strong>
               </div>
 
@@ -686,26 +764,47 @@ export default function App() {
               style={{ marginTop: 18 }}
             >
               <h3>Detected Message Indicators</h3>
-              {messageIndicators.length > 0 ? (
-                <ul style={{ paddingLeft: 22, marginTop: 12 }}>
-                  {messageIndicators.map((indicator, index) => (
-                    <li key={`${indicator}-${index}`} style={{ marginBottom: 8 }}>
-                      {indicator}
-                    </li>
-                  ))}
+
+              {messageIndicators.length ? (
+                <ul
+                  style={{
+                    paddingLeft: 22,
+                    marginTop: 12,
+                  }}
+                >
+                  {messageIndicators.map(
+                    (indicator, index) => (
+                      <li
+                        key={`${indicator}-${index}`}
+                        style={{ marginBottom: 8 }}
+                      >
+                        {indicator}
+                      </li>
+                    )
+                  )}
                 </ul>
               ) : (
-                <p>No rule-based message indicators were reported.</p>
+                <p>
+                  No rule-based message indicators
+                  were reported.
+                </p>
               )}
             </div>
 
-            {Number.isSafeInteger(Number(result.scan_id)) &&
-              Number(result.scan_id) > 0 && (
-                <AiExplanation
-                  key={result.scan_id}
-                  scanId={result.scan_id}
-                />
-              )}
+            {isGuest && guestToken && (
+              <AiExplanation
+                key={guestToken}
+                isGuest={true}
+                guestToken={guestToken}
+              />
+            )}
+
+            {!isGuest && hasSavedScan && (
+              <AiExplanation
+                key={result.scan_id}
+                scanId={result.scan_id}
+              />
+            )}
 
             <p className="disclaimer">
               {isDemoModel
@@ -725,8 +824,7 @@ export default function App() {
           <div>
             <h1>Scan History</h1>
             <p>
-              View security scans stored in Supabase
-              PostgreSQL.
+              View scans stored in Supabase PostgreSQL.
             </p>
           </div>
 
@@ -765,9 +863,7 @@ export default function App() {
         <div className="page-heading">
           <div>
             <h1>Settings</h1>
-            <p>
-              Development account and application settings.
-            </p>
+            <p>Developer account settings.</p>
           </div>
         </div>
 
@@ -781,14 +877,15 @@ export default function App() {
 
           <div className="system-row">
             <span>Authentication</span>
-            <strong>
-              HTTP Basic (Development)
-            </strong>
+            <strong>HTTP Basic</strong>
           </div>
 
           <div className="system-row">
             <span>Backend</span>
-            <strong>localhost:8080</strong>
+            <strong>
+              {import.meta.env.VITE_API_BASE_URL ||
+                "http://localhost:8080/api"}
+            </strong>
           </div>
 
           <button
@@ -804,6 +901,10 @@ export default function App() {
   }
 
   function renderPage() {
+    if (isGuest && !guestPages.includes(activePage)) {
+      return renderMessageScanner();
+    }
+
     switch (activePage) {
       case "Overview":
         return renderOverview();
@@ -811,21 +912,33 @@ export default function App() {
       case "Message Scanner":
         return renderMessageScanner();
 
-      case "Scan History":
-        return renderScanHistory();
-
       case "URL Analyzer":
-  return (
-    <UrlAnalyzer onScanComplete={refreshScans} />
-  );
+        return (
+          <UrlAnalyzer
+            key={isGuest ? "guest-url" : "developer-url"}
+            isGuest={isGuest}
+            onScanComplete={
+              isGuest ? undefined : refreshScans
+            }
+          />
+        );
 
       case "File Analyzer":
-  return (
-    <FileAnalyzer onScanComplete={refreshScans} />
-  );
+        return (
+          <FileAnalyzer
+            key={isGuest ? "guest-file" : "developer-file"}
+            isGuest={isGuest}
+            onScanComplete={
+              isGuest ? undefined : refreshScans
+            }
+          />
+        );
 
       case "Threat Intelligence":
-  return <ThreatIntelligence />;
+        return <ThreatIntelligence />;
+
+      case "Scan History":
+        return renderScanHistory();
 
       case "Settings":
         return renderSettings();
@@ -835,8 +948,7 @@ export default function App() {
     }
   }
 
-  // Display login when the user is not authenticated.
-  if (!authenticated) {
+  if (!authenticated && !isGuest) {
     return (
       <>
         {sessionMessage && (
@@ -845,7 +957,7 @@ export default function App() {
             role="alert"
             style={{
               position: "fixed",
-              top: "16px",
+              top: 16,
               left: "50%",
               transform: "translateX(-50%)",
               zIndex: 1000,
@@ -857,10 +969,19 @@ export default function App() {
           </div>
         )}
 
-        <Login onLogin={handleLogin} />
+        <Login
+          onLogin={handleLogin}
+          onGuest={handleGuest}
+        />
       </>
     );
   }
+
+  const visibleNavigation = isGuest
+    ? navigation.filter((item) =>
+        guestPages.includes(item.name)
+      )
+    : navigation;
 
   return (
     <div className="app-layout">
@@ -900,7 +1021,7 @@ export default function App() {
         </div>
 
         <nav className="sidebar-navigation">
-          {navigation.map((item) => {
+          {visibleNavigation.map((item) => {
             const Icon = item.icon;
 
             return (
@@ -925,8 +1046,11 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="sidebar-security">
             <CheckCircle2 size={17} />
+
             <span>
-              Authenticated Session
+              {isGuest
+                ? "Guest Session"
+                : "Authenticated Session"}
             </span>
           </div>
 
@@ -945,9 +1069,7 @@ export default function App() {
           <div className="topbar-left">
             <button
               className="menu-button"
-              onClick={() =>
-                setSidebarOpen(true)
-              }
+              onClick={() => setSidebarOpen(true)}
               aria-label="Open menu"
             >
               <Menu size={23} />
@@ -971,11 +1093,11 @@ export default function App() {
             </span>
 
             <div className="user-avatar">
-              D
+              {isGuest ? "G" : "D"}
             </div>
 
             <span className="user-name">
-              developer
+              {isGuest ? "Guest" : "developer"}
             </span>
 
             <button
@@ -994,10 +1116,10 @@ export default function App() {
         </main>
 
         <footer className="app-footer">
-          CyberShield AI - AI-Powered Cyber Threat Intelligence Platform
+          CyberShield AI - AI-Powered Cyber Threat
+          Intelligence Platform
         </footer>
       </div>
     </div>
   );
 }
-

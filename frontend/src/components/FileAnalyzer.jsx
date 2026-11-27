@@ -1,3 +1,4 @@
+
 import { useRef, useState } from "react";
 import AiExplanation from "./AiExplanation";
 
@@ -17,13 +18,13 @@ import {
   BrainCircuit,
 } from "lucide-react";
 
-import { analyzeFile } from "../services/api";
+import {
+  analyzeFile,
+  analyzeGuestFile,
+} from "../services/api";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-
-// ---------------------------------------
-// Helper Functions
-// ---------------------------------------
+const DEVELOPER_MAX_SIZE = 10 * 1024 * 1024;
+const GUEST_MAX_SIZE = 2 * 1024 * 1024;
 
 function formatSize(bytes) {
   const size = Number(bytes) || 0;
@@ -40,13 +41,13 @@ function formatSize(bytes) {
 }
 
 function formatScore(score) {
+  if (score == null) return "N/A";
+
   const value = Number(score);
 
-  if (!Number.isFinite(value)) {
-    return "N/A";
-  }
-
-  return `${value.toFixed(2)}%`;
+  return Number.isFinite(value)
+    ? `${value.toFixed(2)}%`
+    : "N/A";
 }
 
 function getRiskColor(level) {
@@ -57,17 +58,17 @@ function getRiskColor(level) {
   return "#94a3b8";
 }
 
-// ---------------------------------------
-// Reusable Score Card
-// ---------------------------------------
-
-function ScoreCard({ title, score, color, description }) {
+function ScoreCard({
+  title,
+  score,
+  color,
+  description,
+}) {
   const numericScore = Number(score);
-  const validScore = Number.isFinite(numericScore)
-    ? numericScore
-    : 0;
 
-  const width = Math.max(0, Math.min(100, validScore));
+  const width = Number.isFinite(numericScore)
+    ? Math.max(0, Math.min(100, numericScore))
+    : 0;
 
   return (
     <div
@@ -119,23 +120,46 @@ function ScoreCard({ title, score, color, description }) {
   );
 }
 
-// ---------------------------------------
-// Main File Analyzer Component
-// ---------------------------------------
+function IndicatorList({
+  indicators,
+  emptyMessage,
+}) {
+  if (
+    !Array.isArray(indicators) ||
+    indicators.length === 0
+  ) {
+    return <p>{emptyMessage}</p>;
+  }
 
-export default function FileAnalyzer({ onScanComplete }) {
+  return (
+    <ul style={{ paddingLeft: 22, marginTop: 12 }}>
+      {indicators.map((indicator, index) => (
+        <li key={index} style={{ marginBottom: 10 }}>
+          {String(indicator)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export default function FileAnalyzer({
+  onScanComplete,
+  isGuest = false,
+}) {
   const [file, setFile] = useState(null);
   const [result, setResult] = useState(null);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
   const inputRef = useRef(null);
 
-  // ---------------------------------------
-  // File Selection
-  // ---------------------------------------
+  const maxFileSize = isGuest
+    ? GUEST_MAX_SIZE
+    : DEVELOPER_MAX_SIZE;
+
+  const maxFileSizeLabel =
+    isGuest ? "2 MB" : "10 MB";
 
   function handleFileChange(event) {
     const selected = event.target.files?.[0];
@@ -152,25 +176,21 @@ export default function FileAnalyzer({ onScanComplete }) {
     if (selected.size === 0) {
       setError("Empty files are not supported.");
       setFile(null);
-
       event.target.value = "";
       return;
     }
 
-    if (selected.size > MAX_FILE_SIZE) {
-      setError("Maximum file size is 10 MB.");
+    if (selected.size > maxFileSize) {
+      setError(
+        `Maximum file size is ${maxFileSizeLabel}.`
+      );
       setFile(null);
-
       event.target.value = "";
       return;
     }
 
     setFile(selected);
   }
-
-  // ---------------------------------------
-  // Remove File
-  // ---------------------------------------
 
   function clearFile() {
     setFile(null);
@@ -183,12 +203,15 @@ export default function FileAnalyzer({ onScanComplete }) {
     }
   }
 
-  // ---------------------------------------
-  // Analyze File
-  // ---------------------------------------
-
   async function handleAnalyze() {
     if (!file || loading) return;
+
+    if (file.size > maxFileSize) {
+      setError(
+        `Maximum file size is ${maxFileSizeLabel}.`
+      );
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -196,9 +219,11 @@ export default function FileAnalyzer({ onScanComplete }) {
     setCopied(false);
 
     try {
-      const data = await analyzeFile(file);
+      const data = isGuest
+        ? await analyzeGuestFile(file)
+        : await analyzeFile(file);
 
-      if (data.status !== "COMPLETED") {
+      if (data?.status !== "COMPLETED") {
         throw new Error(
           "File analysis was not completed."
         );
@@ -206,25 +231,37 @@ export default function FileAnalyzer({ onScanComplete }) {
 
       setResult(data);
 
-      if (onScanComplete) {
-        Promise.resolve()
-          .then(() => onScanComplete())
-          .catch(() => {});
+      if (!isGuest && onScanComplete) {
+        Promise.resolve(onScanComplete()).catch(
+          () => {}
+        );
       }
     } catch (err) {
-      if (err.response?.status === 401) {
+      if (
+        err.response?.status === 401 &&
+        !isGuest
+      ) {
         return;
       }
 
       const detail = err.response?.data?.detail;
-      const message = err.response?.data?.message;
+      const serverMessage =
+        err.response?.data?.message;
 
       if (err.response?.status === 413) {
-        setError("Maximum file size is 10 MB.");
+        setError(
+          `Maximum file size is ${maxFileSizeLabel}.`
+        );
+      } else if (err.response?.status === 429) {
+        setError(
+          "Guest scan limit reached. Please try again later."
+        );
       } else if (typeof detail === "string") {
         setError(detail);
-      } else if (typeof message === "string") {
-        setError(message);
+      } else if (
+        typeof serverMessage === "string"
+      ) {
+        setError(serverMessage);
       } else {
         setError(
           err.message || "File analysis failed."
@@ -235,10 +272,6 @@ export default function FileAnalyzer({ onScanComplete }) {
     }
   }
 
-  // ---------------------------------------
-  // Copy SHA-256 Hash
-  // ---------------------------------------
-
   async function copyHash() {
     if (!result?.sha256) return;
 
@@ -246,72 +279,85 @@ export default function FileAnalyzer({ onScanComplete }) {
       await navigator.clipboard.writeText(
         result.sha256
       );
-
       setCopied(true);
     } catch {
       setError("Unable to copy SHA-256 hash.");
     }
   }
 
-  // ---------------------------------------
-  // Result Values
-  // ---------------------------------------
+  const riskLevel =
+    result?.risk_level || "UNKNOWN";
 
-  const riskLevel = result?.risk_level || "UNKNOWN";
+  const riskScore =
+    Number(result?.risk_score ?? 0);
 
-  const riskScore = Number(
-    result?.risk_score ?? 0
-  );
-
-  const riskColor = getRiskColor(riskLevel);
-
-  const hasAdvancedScore =
-    result?.advanced_risk_score != null;
+  const riskColor =
+    getRiskColor(riskLevel);
 
   const hasBasicScore =
     result?.basic_risk_score != null;
 
+  const hasAdvancedScore =
+    result?.advanced_risk_score != null;
+
   const hasYara =
     result?.yara_status != null;
 
-  const yaraMatches = Array.isArray(result?.yara_matches)
-    ? result.yara_matches
-    : [];
-
-  const indicators = Array.isArray(result?.indicators)
-    ? result.indicators
-    : [];
+  const indicators =
+    Array.isArray(result?.indicators)
+      ? result.indicators
+      : [];
 
   const advancedIndicators =
     Array.isArray(result?.advanced_indicators)
       ? result.advanced_indicators
       : [];
 
-  // ---------------------------------------
-  // Render UI
-  // ---------------------------------------
+  const yaraMatches =
+    Array.isArray(result?.yara_matches)
+      ? result.yara_matches
+      : [];
+
+  const hasSavedScan =
+    Number.isSafeInteger(Number(result?.scan_id)) &&
+    Number(result?.scan_id) > 0;
+
+  const guestToken =
+    result?.guest_explanation_token;
 
   return (
     <div>
-      {/* -----------------------------------
-          Page Heading
-      ----------------------------------- */}
-
       <div className="page-heading">
         <div>
           <h1>AI File Analyzer</h1>
 
           <p>
             Analyze files using static security checks,
-            file signatures, PDF/ZIP inspection, and
-            YARA pattern matching.
+            file signatures, PDF/ZIP inspection,
+            and YARA pattern matching.
           </p>
         </div>
       </div>
 
-      {/* -----------------------------------
-          File Upload Panel
-      ----------------------------------- */}
+      {isGuest && (
+        <div
+          className="panel"
+          style={{
+            padding: 14,
+            marginBottom: 18,
+          }}
+        >
+          <ShieldCheck
+            size={18}
+            style={{
+              display: "inline",
+              marginRight: 8,
+            }}
+          />
+          Guest Mode — Uploaded file results
+          are not saved to scan history.
+        </div>
+      )}
 
       <div className="panel scanner-panel">
         <div className="panel-heading">
@@ -328,7 +374,7 @@ export default function FileAnalyzer({ onScanComplete }) {
 
           <p>
             Select a file for security analysis.
-            Maximum size: 10 MB.
+            Maximum size: {maxFileSizeLabel}.
           </p>
         </div>
 
@@ -365,14 +411,14 @@ export default function FileAnalyzer({ onScanComplete }) {
             type="button"
             className="primary-button"
             disabled={loading}
-            onClick={() => inputRef.current?.click()}
+            onClick={() =>
+              inputRef.current?.click()
+            }
           >
             <Upload size={17} />
             Choose File
           </button>
         </div>
-
-        {/* Selected File */}
 
         {file && (
           <div
@@ -427,8 +473,6 @@ export default function FileAnalyzer({ onScanComplete }) {
           </div>
         )}
 
-        {/* Analyze Button */}
-
         <button
           type="button"
           className="primary-button"
@@ -449,12 +493,11 @@ export default function FileAnalyzer({ onScanComplete }) {
         </button>
       </div>
 
-      {/* -----------------------------------
-          Error Message
-      ----------------------------------- */}
-
       {error && (
-        <div className="alert-message" role="alert">
+        <div
+          className="alert-message"
+          role="alert"
+        >
           <AlertTriangle
             size={18}
             style={{
@@ -466,14 +509,8 @@ export default function FileAnalyzer({ onScanComplete }) {
         </div>
       )}
 
-      {/* -----------------------------------
-          Analysis Results
-      ----------------------------------- */}
-
       {result && (
         <div className="panel result-panel">
-          {/* Result Header */}
-
           <div className="result-heading">
             <div>
               <h2>
@@ -488,7 +525,9 @@ export default function FileAnalyzer({ onScanComplete }) {
               </h2>
 
               <p>
-                Scan #{result.scan_id ?? "N/A"}
+                {isGuest
+                  ? "Guest scan · Not saved"
+                  : `Scan #${result.scan_id ?? "N/A"}`}
               </p>
             </div>
 
@@ -498,8 +537,6 @@ export default function FileAnalyzer({ onScanComplete }) {
               {riskLevel} RISK
             </span>
           </div>
-
-          {/* Main Result Statistics */}
 
           <div className="result-grid">
             <div className="result-stat">
@@ -529,8 +566,6 @@ export default function FileAnalyzer({ onScanComplete }) {
             </div>
           </div>
 
-          {/* Main Risk Progress */}
-
           <div className="risk-progress-heading">
             <span>Overall Risk Score</span>
             <strong>
@@ -550,10 +585,6 @@ export default function FileAnalyzer({ onScanComplete }) {
               }}
             />
           </div>
-
-          {/* --------------------------------
-              Security Analysis Scores
-          -------------------------------- */}
 
           {(hasBasicScore ||
             hasAdvancedScore ||
@@ -593,7 +624,7 @@ export default function FileAnalyzer({ onScanComplete }) {
                     title="Advanced Risk Points"
                     score={result.advanced_risk_score}
                     color="#f59e0b"
-                    description="Additional heuristic points from PDF and ZIP checks"
+                    description="Additional PDF and ZIP heuristic findings"
                   />
                 )}
 
@@ -602,16 +633,12 @@ export default function FileAnalyzer({ onScanComplete }) {
                     title="YARA Severity Score"
                     score={result.yara_risk_score}
                     color="#ef4444"
-                    description="Highest severity score among matched YARA rules"
+                    description="Highest severity among matched YARA rules"
                   />
                 )}
               </div>
             </div>
           )}
-
-          {/* --------------------------------
-              File Information
-          -------------------------------- */}
 
           <div
             className="explanation-box"
@@ -648,10 +675,6 @@ export default function FileAnalyzer({ onScanComplete }) {
               {result.model_version || "N/A"}
             </p>
           </div>
-
-          {/* --------------------------------
-              SHA-256 Hash
-          -------------------------------- */}
 
           <div
             className="explanation-box"
@@ -704,10 +727,6 @@ export default function FileAnalyzer({ onScanComplete }) {
             )}
           </div>
 
-          {/* --------------------------------
-              All Detected Indicators
-          -------------------------------- */}
-
           <div
             className="explanation-box"
             style={{ marginTop: 18 }}
@@ -723,33 +742,11 @@ export default function FileAnalyzer({ onScanComplete }) {
               Detected Security Indicators
             </h3>
 
-            {indicators.length > 0 ? (
-              <ul
-                style={{
-                  paddingLeft: 22,
-                  marginTop: 12,
-                }}
-              >
-                {indicators.map((indicator, index) => (
-                  <li
-                    key={index}
-                    style={{ marginBottom: 10 }}
-                  >
-                    {indicator}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>
-                No security indicators detected
-                by the current rules.
-              </p>
-            )}
+            <IndicatorList
+              indicators={indicators}
+              emptyMessage="No security indicators detected by the current rules."
+            />
           </div>
-
-          {/* --------------------------------
-              Advanced Indicators
-          -------------------------------- */}
 
           {result.advanced_indicators != null && (
             <div
@@ -767,36 +764,12 @@ export default function FileAnalyzer({ onScanComplete }) {
                 Advanced File Inspection
               </h3>
 
-              {advancedIndicators.length > 0 ? (
-                <ul
-                  style={{
-                    paddingLeft: 22,
-                    marginTop: 12,
-                  }}
-                >
-                  {advancedIndicators.map(
-                    (indicator, index) => (
-                      <li
-                        key={index}
-                        style={{ marginBottom: 10 }}
-                      >
-                        {indicator}
-                      </li>
-                    )
-                  )}
-                </ul>
-              ) : (
-                <p>
-                  No additional PDF or ZIP
-                  indicators detected.
-                </p>
-              )}
+              <IndicatorList
+                indicators={advancedIndicators}
+                emptyMessage="No additional PDF or ZIP indicators detected."
+              />
             </div>
           )}
-
-          {/* --------------------------------
-              YARA Signature Analysis
-          -------------------------------- */}
 
           {hasYara && (
             <div
@@ -829,7 +802,7 @@ export default function FileAnalyzer({ onScanComplete }) {
                 {formatScore(result.yara_risk_score)}
               </p>
 
-              {yaraMatches.length > 0 ? (
+              {yaraMatches.length ? (
                 <ul
                   style={{
                     paddingLeft: 22,
@@ -839,19 +812,11 @@ export default function FileAnalyzer({ onScanComplete }) {
                   {yaraMatches.map((match, index) => (
                     <li
                       key={`${match.rule}-${index}`}
-                      style={{
-                        marginBottom: 18,
-                      }}
+                      style={{ marginBottom: 18 }}
                     >
-                      <strong>
-                        {match.rule}
-                      </strong>
+                      <strong>{match.rule}</strong>
 
-                      <p
-                        style={{
-                          marginTop: 6,
-                        }}
-                      >
+                      <p style={{ marginTop: 6 }}>
                         {match.description}
                       </p>
 
@@ -891,10 +856,6 @@ export default function FileAnalyzer({ onScanComplete }) {
             </div>
           )}
 
-          {/* --------------------------------
-              Analysis Warning
-          -------------------------------- */}
-
           {result.analysis_warning && (
             <div
               className="explanation-box"
@@ -910,7 +871,6 @@ export default function FileAnalyzer({ onScanComplete }) {
                   style={{
                     display: "inline",
                     marginRight: 8,
-                    color: "#f59e0b",
                   }}
                 />
                 Analysis Warning
@@ -919,10 +879,6 @@ export default function FileAnalyzer({ onScanComplete }) {
               <p>{result.analysis_warning}</p>
             </div>
           )}
-
-          {/* --------------------------------
-              Analysis Explanation
-          -------------------------------- */}
 
           <div
             className="explanation-box"
@@ -945,9 +901,20 @@ export default function FileAnalyzer({ onScanComplete }) {
             </p>
           </div>
 
-          {/* --------------------------------
-              Security Disclaimer
-          -------------------------------- */}
+          {isGuest && guestToken && (
+            <AiExplanation
+              key={guestToken}
+              isGuest={true}
+              guestToken={guestToken}
+            />
+          )}
+
+          {!isGuest && hasSavedScan && (
+            <AiExplanation
+              key={result.scan_id}
+              scanId={result.scan_id}
+            />
+          )}
 
           <div
             className="explanation-box"
@@ -960,24 +927,13 @@ export default function FileAnalyzer({ onScanComplete }) {
                 marginRight: 8,
               }}
             />
-
             Static analysis only. Uploaded files
             are not executed. Detection rules
             and YARA matches identify suspicious
             patterns but cannot confirm malware.
-
             A LOW risk score does not guarantee
             that a file is safe.
           </div>
-
-          {/* Explain the saved scan using stored findings. */}
-          {Number.isSafeInteger(Number(result.scan_id)) &&
-            Number(result.scan_id) > 0 && (
-              <AiExplanation
-                key={result.scan_id}
-                scanId={result.scan_id}
-              />
-            )}
         </div>
       )}
     </div>

@@ -1,5 +1,7 @@
+
 import { useState } from "react";
 import AiExplanation from "./AiExplanation";
+
 import {
   Link2,
   Search,
@@ -11,10 +13,14 @@ import {
   LoaderCircle,
 } from "lucide-react";
 
-import { analyzeUrl } from "../services/api";
+import {
+  analyzeUrl,
+  analyzeGuestUrl,
+} from "../services/api";
 
 function ScoreCard({ title, score, color, description }) {
   const value = Number(score ?? 0);
+
   const safeScore = Number.isFinite(value)
     ? Math.max(0, Math.min(100, value))
     : 0;
@@ -48,14 +54,23 @@ function ScoreCard({ title, score, color, description }) {
         />
       </div>
 
-      <p style={{ marginTop: 12, fontSize: 13, opacity: 0.7 }}>
+      <p
+        style={{
+          marginTop: 12,
+          fontSize: 13,
+          opacity: 0.7,
+        }}
+      >
         {description}
       </p>
     </div>
   );
 }
 
-export default function UrlAnalyzer({ onScanComplete }) {
+export default function UrlAnalyzer({
+  onScanComplete,
+  isGuest = false,
+}) {
   const [url, setUrl] = useState("");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -74,12 +89,31 @@ export default function UrlAnalyzer({ onScanComplete }) {
     }
 
     if (!/^https?:\/\/\S+$/i.test(trimmed)) {
-      setError("Enter a URL starting with http:// or https://");
+      setError(
+        "Enter a URL starting with http:// or https://"
+      );
       return;
     }
 
-    if ((trimmed.match(/https?:\/\//gi) || []).length > 1) {
+    if (
+      (trimmed.match(/https?:\/\//gi) || []).length > 1
+    ) {
       setError("Please enter only one URL.");
+      return;
+    }
+
+    try {
+      const parsed = new URL(trimmed);
+
+      if (
+        !["http:", "https:"].includes(parsed.protocol) ||
+        !parsed.hostname
+      ) {
+        setError("Enter a valid HTTP or HTTPS URL.");
+        return;
+      }
+    } catch {
+      setError("Invalid URL.");
       return;
     }
 
@@ -88,27 +122,42 @@ export default function UrlAnalyzer({ onScanComplete }) {
     setResult(null);
 
     try {
-      const data = await analyzeUrl(trimmed);
+      const data = isGuest
+        ? await analyzeGuestUrl(trimmed)
+        : await analyzeUrl(trimmed);
+
+      if (data?.status !== "COMPLETED") {
+        throw new Error(
+          "URL analysis was not completed."
+        );
+      }
+
       setResult(data);
 
-      if (onScanComplete) {
+      if (!isGuest && onScanComplete) {
         Promise.resolve(onScanComplete()).catch(() => {});
       }
     } catch (err) {
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 && !isGuest) {
         return;
       }
 
       const detail = err.response?.data?.detail;
       const message = err.response?.data?.message;
 
-      setError(
-        typeof detail === "string"
-          ? detail
-          : typeof message === "string"
-            ? message
-            : "Unable to analyze the URL."
-      );
+      if (err.response?.status === 429) {
+        setError(
+          "Guest scan limit reached. Please try again later."
+        );
+      } else {
+        setError(
+          typeof detail === "string"
+            ? detail
+            : typeof message === "string"
+              ? message
+              : err.message || "Unable to analyze the URL."
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -128,23 +177,50 @@ export default function UrlAnalyzer({ onScanComplete }) {
 
   const hasML = result?.ml_risk_score != null;
 
+  const hasSavedScan =
+    Number.isSafeInteger(Number(result?.scan_id)) &&
+    Number(result?.scan_id) > 0;
+
+  const guestToken = result?.guest_explanation_token;
+
   return (
     <div>
       <div className="page-heading">
-        <h1>AI URL Analyzer</h1>
-
-        <p>
-          Detect suspicious URL patterns using machine
-          learning and security rules.
-        </p>
+        <div>
+          <h1>AI URL Analyzer</h1>
+          <p>
+            Detect suspicious URL patterns using machine
+            learning and security rules.
+          </p>
+        </div>
       </div>
+
+      {isGuest && (
+        <div
+          className="panel"
+          style={{ padding: 14, marginBottom: 18 }}
+        >
+          <ShieldCheck
+            size={18}
+            style={{
+              display: "inline",
+              marginRight: 8,
+            }}
+          />
+          Guest Mode — Results are not saved to your
+          scan history.
+        </div>
+      )}
 
       <div className="panel scanner-panel">
         <div className="panel-heading">
           <h2>
             <Link2
               size={20}
-              style={{ display: "inline", marginRight: 8 }}
+              style={{
+                display: "inline",
+                marginRight: 8,
+              }}
             />
             Analyze URL
           </h2>
@@ -156,7 +232,9 @@ export default function UrlAnalyzer({ onScanComplete }) {
           <input
             type="text"
             value={url}
-            onChange={(event) => setUrl(event.target.value)}
+            onChange={(event) =>
+              setUrl(event.target.value)
+            }
             placeholder="https://example.com"
             maxLength={2048}
             disabled={loading}
@@ -195,7 +273,10 @@ export default function UrlAnalyzer({ onScanComplete }) {
         <div className="alert-message" role="alert">
           <AlertTriangle
             size={18}
-            style={{ display: "inline", marginRight: 8 }}
+            style={{
+              display: "inline",
+              marginRight: 8,
+            }}
           />
           {error}
         </div>
@@ -208,12 +289,19 @@ export default function UrlAnalyzer({ onScanComplete }) {
               <h2>
                 <CheckCircle
                   size={20}
-                  style={{ display: "inline", marginRight: 8 }}
+                  style={{
+                    display: "inline",
+                    marginRight: 8,
+                  }}
                 />
                 URL Analysis Result
               </h2>
 
-              <p>Scan #{result.scan_id ?? "N/A"}</p>
+              <p>
+                {isGuest
+                  ? "Guest scan · Not saved"
+                  : `Scan #${result.scan_id ?? "N/A"}`}
+              </p>
             </div>
 
             <span
@@ -265,7 +353,9 @@ export default function UrlAnalyzer({ onScanComplete }) {
           <div className="result-grid">
             <div className="result-stat">
               <span>Final Prediction</span>
-              <strong>{result.prediction || "N/A"}</strong>
+              <strong>
+                {result.prediction || "N/A"}
+              </strong>
             </div>
 
             <div className="result-stat">
@@ -282,7 +372,9 @@ export default function UrlAnalyzer({ onScanComplete }) {
 
             <div className="result-stat">
               <span>Model Version</span>
-              <strong>{result.model_version || "N/A"}</strong>
+              <strong>
+                {result.model_version || "N/A"}
+              </strong>
             </div>
           </div>
 
@@ -293,7 +385,10 @@ export default function UrlAnalyzer({ onScanComplete }) {
             <h3>
               <BrainCircuit
                 size={19}
-                style={{ display: "inline", marginRight: 8 }}
+                style={{
+                  display: "inline",
+                  marginRight: 8,
+                }}
               />
               Analysis Explanation
             </h3>
@@ -310,39 +405,62 @@ export default function UrlAnalyzer({ onScanComplete }) {
                 <h3>
                   <ShieldAlert
                     size={19}
-                    style={{ display: "inline", marginRight: 8 }}
+                    style={{
+                      display: "inline",
+                      marginRight: 8,
+                    }}
                   />
                   Detected Indicators
                 </h3>
 
-                <ul style={{ paddingLeft: 22, marginTop: 12 }}>
+                <ul
+                  style={{
+                    paddingLeft: 22,
+                    marginTop: 12,
+                  }}
+                >
                   {result.indicators.map((item, index) => (
-                    <li key={index} style={{ marginBottom: 8 }}>
-                      {item}
+                    <li
+                      key={index}
+                      style={{ marginBottom: 8 }}
+                    >
+                      {String(item)}
                     </li>
                   ))}
                 </ul>
               </div>
             )}
 
-          <div className="explanation-box" style={{ marginTop: 20 }}>
+          {isGuest && guestToken && (
+            <AiExplanation
+              key={guestToken}
+              isGuest={true}
+              guestToken={guestToken}
+            />
+          )}
+
+          {!isGuest && hasSavedScan && (
+            <AiExplanation
+              key={result.scan_id}
+              scanId={result.scan_id}
+            />
+          )}
+
+          <div
+            className="explanation-box"
+            style={{ marginTop: 20 }}
+          >
             <ShieldCheck
               size={18}
-              style={{ display: "inline", marginRight: 8 }}
+              style={{
+                display: "inline",
+                marginRight: 8,
+              }}
             />
-            This is a predictive security assessment.
-            A LOW risk result does not guarantee
-            that the website is safe.
+            This is an experimental security assessment.
+            A LOW risk result does not guarantee that
+            the website is safe.
           </div>
-
-          {/* The explanation component reads stored findings by scan ID. */}
-          {Number.isSafeInteger(Number(result.scan_id)) &&
-            Number(result.scan_id) > 0 && (
-              <AiExplanation
-                key={result.scan_id}
-                scanId={result.scan_id}
-              />
-            )}
         </div>
       )}
     </div>
